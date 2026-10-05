@@ -34,11 +34,96 @@ skips anchor correction for it. This ratio is configurable with
 
 ## Installation
 
-<!-- TODO: add example of installation using overlay -->
+As this package is not published in Nixpkgs, add it as a flake input and
+install it using either the overlay or the default package:
+
+`flake.nix`
+
+```nix
+{
+  inputs.niri-tab-watcher = {
+    url = "github:Ishaan-Datta/niri-tab-watcher";
+    inputs.nixpkgs.follows = "nixpkgs";
+  };
+}
+```
+
+Adding it using the overlay:
+
+```nix
+{ inputs, pkgs, ... }:
+
+{
+  nixpkgs.overlays = [
+    inputs.niri-tab-watcher.overlays.default
+  ];
+
+  environment.systemPackages = [
+    pkgs.niri-tab-watcher
+  ];
+}
+```
+
+Adding it using the default package:
+
+```nix
+{ inputs, pkgs, ... }:
+
+{
+  environment.systemPackages = [
+    inputs.niri-tab-watcher.packages.${pkgs.stdenv.hostPlatform.system}.default
+  ];
+}
+```
+
+For trying the utility without installing:
+
+```bash
+nix run github:Ishaan-Datta/niri-tab-watcher -- --help
+```
 
 ## Configuration
 
-Bind a normal niri action to the short-lived client command:
+`niri-tab-watcher daemon` must run for the duration of the niri session. The
+short-lived `restore` command communicates with that daemon over a Unix socket.
+
+### NixOS user service
+
+Add the following to a NixOS module. The package is referenced directly from
+the flake input, so the service always uses an absolute Nix store path:
+
+```nix
+{ inputs, lib, pkgs, ... }:
+
+let
+  niriTabWatcher =
+    inputs.niri-tab-watcher.packages.${pkgs.stdenv.hostPlatform.system}.default;
+in
+{
+  systemd.user.services.niri-tab-watcher = {
+    description = "Track niri's previous stable window";
+
+    partOf = [ "graphical-session.target" ];
+    after = [ "graphical-session.target" ];
+    requisite = [ "graphical-session.target" ];
+    wantedBy = [ "niri.service" ];
+
+    serviceConfig = {
+      Type = "simple";
+      ExecStart = "${lib.getExe niriTabWatcher} daemon --debounce-ms 750";
+      Restart = "on-failure";
+      RestartSec = 1;
+    };
+  };
+}
+```
+
+If the overlay is enabled, `niriTabWatcher` can instead be defined as
+`pkgs.niri-tab-watcher`.
+
+### Niri key bind
+
+Bind a normal niri action to the `restore` client command:
 
 ```kdl
 binds {
